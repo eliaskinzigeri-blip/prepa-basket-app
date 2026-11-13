@@ -1,0 +1,68 @@
+# Fabrique l'IPA de Prépa Basket sur un Mac de GitHub, sans signature : SideStore la signe avec ton identifiant Apple.
+# Lancement : à chaque push sur main, ou à la main (onglet Actions → « IPA iPhone » → Run workflow).
+name: IPA iPhone
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dépendances
+        run: npm ci
+
+      - name: Compilation de l'app web
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_PRONOTE_ACCOUNT: ${{ secrets.VITE_PRONOTE_ACCOUNT }}
+        run: npx vite build
+
+      - name: Projet iOS (Capacitor)
+        run: |
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Autorisations iOS (Bluetooth, caméra, Face ID, notifications)
+        run: |
+          PLIST=ios/App/App/Info.plist
+          set_key() { /usr/libexec/PlistBuddy -c "Delete :$1" "$PLIST" 2>/dev/null || true; /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PLIST"; }
+          set_key NSBluetoothAlwaysUsageDescription "Prépa Basket se connecte à ta ceinture cardio, à ton rameur et à ta balance."
+          set_key NSBluetoothPeripheralUsageDescription "Prépa Basket se connecte à ta ceinture cardio, à ton rameur et à ta balance."
+          set_key NSCameraUsageDescription "La caméra analyse tes tirs, ton dribble et tes sauts. Aucune vidéo n'est envoyée sur un serveur."
+          set_key NSMicrophoneUsageDescription "Le micro n'est pas utilisé ; iOS le demande avec la caméra pour certaines vidéos."
+          set_key NSFaceIDUsageDescription "Face ID verrouille Prépa Basket pour que toi seul y accèdes."
+          set_key NSPhotoLibraryUsageDescription "Pour importer la photo d'un repas depuis ta galerie."
+          set_key NSPhotoLibraryAddUsageDescription "Pour enregistrer les replays de tes tirs."
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(node -p "require('./package.json').version")" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" "$PLIST"
+
+      - name: Compilation Xcode (sans signature)
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -40
+
+      - name: Paquet IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qry PrepaBasket.ipa Payload
+          ls -lh PrepaBasket.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PrepaBasket-ipa
+          path: PrepaBasket.ipa
+          retention-days: 30

@@ -1,0 +1,66 @@
+/* Prépa Basket — generated from tokens.json */
+@font-face{font-family:'Inter';src:url('fonts/Inter-Regular.woff2') format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:'Inter';src:url('fonts/Inter-Medium.woff2') format('woff2');font-weight:500;font-display:swap}
+@font-face{font-family:'Inter';src:url('fonts/Inter-SemiBold.woff2') format('woff2');font-weight:600;font-display:swap}
+@font-face{font-family:'Inter';src:url('fonts/Inter-Bold.woff2') format('woff2');font-weight:700;font-display:swap}
+@font-face{font-family:'Inter Display';src:url('fonts/InterDisplay-SemiBold.woff2') format('woff2');font-weight:600;font-display:swap}
+@font-face{font-family:'Inter Display';src:url('fonts/InterDisplay-Bold.woff2') format('woff2');font-weight:700;font-display:swap}
+:root{
+  --bg-950:#050a1f;
+  --bg-900:#081233;
+  --bg-800:#0d1b4d;
+  --bg-700:#16296b;
+  --bg-600:#2a4a9e;
+  --glass-100:rgba(255,255,255,0.06);
+  --glass-200:rgba(255,255,255,0.10);
+  --glass-300:rgba(255,255,255,0.16);
+  --stroke-100:rgba(255,255,255,0.12);
+  --stroke-200:rgba(255,255,255,0.24);
+  --ink:#ffffff;
+  --ink-muted:#b3bddb;
+  --ink-subtle:#8592b8;
+  --primary:#5b3cff;
+  --primary-strong:#4a2ae6;
+  --primary-bright:#8c7bff;
+  --primary-soft:rgba(91,60,255,0.22);
+  --heat:#f3e9d2;
+  --cat-workout:#7a63ff;
+  --cat-basket:#ff8a3d;
+  --cat-club:#3cc4f5;
+  --cat-match:#ffc94a;
+  --cat-rest:#64739c;
+  --cat-class:rgba(255,255,255,0.08);
+  --success:#3ddc97;
+  --danger:#ff6b81;
+  --warning:var(--cat-match);
+  --camera-scrim:rgba(5,10,31,0.55);
+  --space-1:4px;
+  --space-2:8px;
+  --space-3:12px;
+  --space-4:16px;
+  --space-5:20px;
+  --space-6:24px;
+  --space-8:32px;
+  --touch-min:44px;
+  --touch-field:56px;
+  --radius-sm:12px;
+  --radius-md:16px;
+  --radius-lg:22px;
+  --radius-xl:30px;
+  --radius-pill:999px;
+  --shadow-glass:0 10px 30px rgba(3,8,30,0.45);
+  --shadow-glow:0 8px 24px rgba(91,60,255,0.55);
+  --shadow-inner:inset 0 1px 0 rgba(255,255,255,0.18);
+  --blur-glass:20px;
+  --blur-nav:28px;
+  --font-display:"Inter Display", "Inter", -apple-system, "SF Pro Display", system-ui, sans-serif;
+  --font-sans:"Inter", -apple-system, "SF Pro Text", system-ui, sans-serif;
+}
+.score-xl{font-family:var(--font-display);font-size:44px;line-height:48px;font-weight:600;letter-spacing:-0.02em;}
+.stat-lg{font-family:var(--font-display);font-size:28px;line-height:32px;font-weight:600;letter-spacing:-0.01em;}
+.title-lg{font-family:var(--font-display);font-size:26px;line-height:32px;font-weight:700;letter-spacing:-0.01em;}
+.title-md{font-family:var(--font-display);font-size:18px;line-height:24px;font-weight:600;}
+.body{font-family:var(--font-sans);font-size:15px;line-height:22px;font-weight:400;}
+.body-strong{font-family:var(--font-sans);font-size:15px;line-height:22px;font-weight:600;}
+.label{font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500;}
+.caption{font-family:var(--font-sans);font-size:11px;line-height:14px;font-weight:600;letter-spacing:0.06em;}

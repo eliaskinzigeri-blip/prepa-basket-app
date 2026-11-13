@@ -1,0 +1,16 @@
+node_modules
+dist
+.env
+.env.local
+*.log
+.env.test.local
+
+.vercel
+
+# App iPhone : projet Xcode généré par la compilation (GitHub Actions)
+ios/
+*.ipa
+
+# Code serveur (identifiants de comptes, liens NoteFlow, PRONOTE) et scripts de test : gardés hors du dépôt public
+supabase/
+scripts/
