@@ -7,9 +7,16 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Écriture des versions GitHub (IPA) et de la branche « sidestore » (source.json)
+permissions:
+  contents: write
+
 jobs:
   ipa:
     runs-on: macos-15
+    env:
+      APP_VERSION: 1.0.${{ github.run_number }}
+      APP_BUILD: ${{ github.run_number }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -51,8 +58,9 @@ jobs:
           set_key NSFaceIDUsageDescription "Face ID verrouille Prépa Basket pour que toi seul y accèdes."
           set_key NSPhotoLibraryUsageDescription "Pour importer la photo d'un repas depuis ta galerie."
           set_key NSPhotoLibraryAddUsageDescription "Pour enregistrer les replays de tes tirs."
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(node -p "require('./package.json').version")" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" "$PLIST"
+          # Numéro de version 1.0.N : chaque compilation apparaît comme une mise à jour dans SideStore
+          plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$PLIST"
+          plutil -replace CFBundleVersion -string "$APP_BUILD" "$PLIST"
           # Vérification : la compilation échoue si une autorisation manque (sans elle, iOS ferme l'app)
           for k in NSBluetoothAlwaysUsageDescription NSCameraUsageDescription NSMicrophoneUsageDescription NSFaceIDUsageDescription NSPhotoLibraryUsageDescription; do
             plutil -extract "$k" raw "$PLIST" > /dev/null || { echo "Autorisation manquante : $k"; exit 1; }
@@ -62,6 +70,7 @@ jobs:
         run: |
           xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$APP_BUILD" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -40
 
       - name: Paquet IPA
@@ -76,3 +85,21 @@ jobs:
           name: PrepaBasket-ipa
           path: PrepaBasket.ipa
           retention-days: 30
+
+      - name: Version GitHub v1.0.N (adresse de téléchargement fixe)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$APP_VERSION" PrepaBasket.ipa --title "Prépa Basket $APP_VERSION" \
+            --notes "IPA sans signature, à installer avec SideStore (source : https://raw.githubusercontent.com/${{ github.repository }}/sidestore/source.json)." --latest
+
+      - name: Source SideStore (branche sidestore)
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/v$APP_VERSION/PrepaBasket.ipa"
+          python3 .github/sidestore_source.py PrepaBasket.ipa "$APP_VERSION" "$APP_BUILD" "$URL" /tmp/source.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch -q origin sidestore 2>/dev/null; then git checkout -q -B sidestore origin/sidestore; else git checkout -q --orphan sidestore; git rm -rfq --cached .; fi
+          cp /tmp/source.json source.json
+          git add source.json
+          git commit -qm "Source SideStore : $APP_VERSION" && git push -q origin sidestore
