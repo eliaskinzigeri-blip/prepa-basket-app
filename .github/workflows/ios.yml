@@ -37,7 +37,8 @@ jobs:
       - name: Autorisations iOS (Bluetooth, caméra, Face ID, notifications)
         run: |
           PLIST=ios/App/App/Info.plist
-          set_key() { /usr/libexec/PlistBuddy -c "Delete :$1" "$PLIST" 2>/dev/null || true; /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PLIST"; }
+          # plutil accepte tous les caractères (PlistBuddy coupe les textes à l'apostrophe)
+          set_key() { plutil -replace "$1" -string "$2" "$PLIST"; }
           set_key NSBluetoothAlwaysUsageDescription "Prépa Basket se connecte à ta ceinture cardio, à ton rameur et à ta balance."
           set_key NSBluetoothPeripheralUsageDescription "Prépa Basket se connecte à ta ceinture cardio, à ton rameur et à ta balance."
           set_key NSCameraUsageDescription "La caméra analyse tes tirs, ton dribble et tes sauts. Aucune vidéo n'est envoyée sur un serveur."
@@ -47,6 +48,10 @@ jobs:
           set_key NSPhotoLibraryAddUsageDescription "Pour enregistrer les replays de tes tirs."
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(node -p "require('./package.json').version")" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" "$PLIST"
+          # Vérification : la compilation échoue si une autorisation manque (sans elle, iOS ferme l'app)
+          for k in NSBluetoothAlwaysUsageDescription NSCameraUsageDescription NSMicrophoneUsageDescription NSFaceIDUsageDescription NSPhotoLibraryUsageDescription; do
+            plutil -extract "$k" raw "$PLIST" > /dev/null || { echo "Autorisation manquante : $k"; exit 1; }
+          done
 
       - name: Compilation Xcode (sans signature)
         run: |
