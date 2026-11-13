@@ -1,0 +1,45 @@
+{
+  "name": "Prépa Basket",
+  "identifier": "fr.prepabasket.source",
+  "subtitle": "Préparation basket pour ado",
+  "sourceURL": "https://raw.githubusercontent.com/eliaskinzigeri-blip/prepa-basket-app/sidestore/source.json",
+  "iconURL": "https://raw.githubusercontent.com/eliaskinzigeri-blip/prepa-basket-app/main/native-ios/AppIcon-1024.png",
+  "website": "https://prepa-basket.vercel.app",
+  "tintColor": "#5b3cff",
+  "apps": [
+    {
+      "name": "Prépa Basket",
+      "bundleIdentifier": "fr.prepabasket.app",
+      "developerName": "Prépa Basket",
+      "subtitle": "Programme, shoot, détente, sommeil et nutrition",
+      "localizedDescription": "Programme d'entraînement adapté au club et aux matchs, analyse du shoot et de la détente à la caméra, ceinture cardio, sommeil, VFC du matin et nutrition.",
+      "iconURL": "https://raw.githubusercontent.com/eliaskinzigeri-blip/prepa-basket-app/main/native-ios/AppIcon-1024.png",
+      "tintColor": "#5b3cff",
+      "category": "health",
+      "versions": [
+        {
+          "version": "1.0.5",
+          "buildVersion": "5",
+          "date": "2026-11-13T16:38:08Z",
+          "localizedDescription": "Compilation 5",
+          "downloadURL": "https://github.com/eliaskinzigeri-blip/prepa-basket-app/releases/download/v1.0.5/PrepaBasket.ipa",
+          "size": 8745238,
+          "minOSVersion": "14.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSBluetoothAlwaysUsageDescription": "Prépa Basket se connecte à ta ceinture cardio, à ton rameur et à ta balance.",
+          "NSBluetoothPeripheralUsageDescription": "Prépa Basket se connecte à ta ceinture cardio, à ton rameur et à ta balance.",
+          "NSCameraUsageDescription": "La caméra analyse tes tirs, ton dribble et tes sauts (suivi du corps en 3D). Aucune vidéo n'est envoyée sur un serveur.",
+          "NSFaceIDUsageDescription": "Face ID verrouille Prépa Basket pour que toi seul y accèdes.",
+          "NSMicrophoneUsageDescription": "Le micro n'est pas utilisé ; iOS le demande avec la caméra pour certaines vidéos.",
+          "NSPhotoLibraryAddUsageDescription": "Pour enregistrer les replays de tes tirs.",
+          "NSPhotoLibraryUsageDescription": "Pour importer la photo d'un repas depuis ta galerie."
+        }
+      }
+    }
+  ],
+  "news": []
+}
