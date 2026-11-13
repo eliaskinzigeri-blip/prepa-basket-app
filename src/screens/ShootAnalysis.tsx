@@ -8,6 +8,7 @@ import { loadVideo } from "../vision/media";
 import { zoneOf, type Shot } from "../vision/shot";
 import type { SessionRow } from "../lib/types";
 import { ME, type PlayerResult } from "../lib/people";
+import { appleTrajectories, compareShots, shotArcs, visionCaps } from "../native/vision";
 
 const PXM = 20; // pixels par mètre sur le schéma
 const ZONES: Record<string, [number, number]> = { coin_g: [40, 40], coin_d: [290, 40], aile_g: [70, 175], aile_d: [262, 175], axe: [165, 232], raquette: [165, 100] };
@@ -122,6 +123,7 @@ export default function ShootAnalysis() {
         </div>
       ) : null}
       {r.corrected ? <p className="pb-subtle" style={{ fontSize: 12 }}>Comptage corrigé à la main : {r.made}/{r.attempts}.</p> : null}
+      {r.hasVideo ? <AppleCheck sessionId={s.id} shots={(r.shots ?? []) as Shot[]} /> : null}
       {r.hasVideo ? (
         <BottomAction><button className="pb-btn lg block" onClick={() => setReplay(0)}><Icon name="play" size="sm" />Revoir les tirs avec trajectoire</button></BottomAction>
       ) : <div style={{ marginTop: 12 }}><Notice>Les vidéos de cette session ne sont pas sur ce téléphone.</Notice></div>}
@@ -182,6 +184,45 @@ function Replay({ sessionId, shots, index, onIndex, onClose }: { sessionId: stri
         <button className="pb-btn lg" style={{ flex: 1 }} disabled={index === 0} onClick={() => onIndex(index - 1)}><Icon name="left" size="sm" />Précédent</button>
         <button className="pb-btn primary lg" style={{ flex: 1 }} disabled={index >= shots.length - 1} onClick={() => onIndex(index + 1)}>Suivant<Icon name="right" size="sm" /></button>
       </div>
+    </div>
+  );
+}
+
+/** App iPhone : deuxième avis sur le comptage, par la détection de trajectoires d'Apple (Vision), en essai.
+ *  L'analyse actuelle reste celle qui compte tant que celle d'Apple n'a pas fait 100 % sur les 17 tirs de référence. */
+function AppleCheck({ sessionId, shots }: { sessionId: string; shots: Shot[] }) {
+  const [ok, setOk] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [res, setRes] = useState<ReturnType<typeof compareShots> | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { visionCaps().then((c) => setOk(c.trajectories)); }, []);
+  if (!ok) return null;
+  async function run() {
+    setErr(null); setBusy(0);
+    try {
+      const video = await loadVideo(`shoot:${sessionId}`);
+      if (!video) throw new Error("La vidéo de cette session n'est plus sur ce téléphone.");
+      const out = await appleTrajectories(video, setBusy);
+      const cmp = compareShots(shotArcs(out.trajectories), shots);
+      setRes(cmp);
+      supabase.from("debug_traces").insert({ kind: "apple_traj", data: { sessionId, shots: shots.map((x) => [x.t0, x.t1, x.made]), cmp, frames: out.frames,
+        trajectories: out.trajectories.map((t) => ({ t0: t.t0, t1: t.t1, c: t.confidence, k: t.coeffs, n: t.points.length })) } }).then(() => undefined, () => undefined);
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(null);
+  }
+  return (
+    <div className="pb-glass" style={{ marginTop: 12, padding: 14, display: "grid", gap: 8 }}>
+      <b style={{ fontSize: 15 }}>Deuxième avis : détection Apple (essai)</b>
+      <span className="pb-muted" style={{ fontSize: 13 }}>Apple repère les trajectoires du ballon dans ta vidéo. On compare avec les tirs comptés par l'app, pour voir laquelle est la plus fiable.</span>
+      {res ? (
+        <div style={{ display: "grid", gap: 4, fontSize: 14 }}>
+          <span>Arcs de tir vus par Apple : <b className="pb-num">{res.arcs}</b> (l'app a compté {shots.length} tirs)</span>
+          <span>Tirs de l'app retrouvés par Apple : <b className="pb-num">{res.matched}/{shots.length}</b></span>
+          {res.extra ? <span>Arcs vus par Apple sans tir compté par l'app : <b className="pb-num">{res.extra}</b> (tir oublié par l'app, ou passe et dribble haut)</span> : null}
+        </div>
+      ) : null}
+      {err ? <Notice tone="error">{err}</Notice> : null}
+      <button className="pb-btn" disabled={busy != null} onClick={run}>{busy != null ? `Analyse en cours… ${Math.round(busy * 100)} %` : res ? "Relancer l'analyse Apple" : "Lancer l'analyse Apple"}</button>
     </div>
   );
 }

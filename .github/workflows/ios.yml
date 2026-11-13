@@ -34,6 +34,11 @@ jobs:
           npx cap add ios
           npx cap sync ios
 
+      - name: Module natif PrepaVision (sauts en 3D, trajectoires du ballon)
+        run: |
+          gem list -i xcodeproj > /dev/null || sudo gem install xcodeproj --no-document
+          ruby native-ios/add-native.rb
+
       - name: Autorisations iOS (Bluetooth, caméra, Face ID, notifications)
         run: |
           PLIST=ios/App/App/Info.plist
@@ -41,7 +46,7 @@ jobs:
           set_key() { plutil -replace "$1" -string "$2" "$PLIST"; }
           set_key NSBluetoothAlwaysUsageDescription "Prépa Basket se connecte à ta ceinture cardio, à ton rameur et à ta balance."
           set_key NSBluetoothPeripheralUsageDescription "Prépa Basket se connecte à ta ceinture cardio, à ton rameur et à ta balance."
-          set_key NSCameraUsageDescription "La caméra analyse tes tirs, ton dribble et tes sauts. Aucune vidéo n'est envoyée sur un serveur."
+          set_key NSCameraUsageDescription "La caméra analyse tes tirs, ton dribble et tes sauts (suivi du corps en 3D). Aucune vidéo n'est envoyée sur un serveur."
           set_key NSMicrophoneUsageDescription "Le micro n'est pas utilisé ; iOS le demande avec la caméra pour certaines vidéos."
           set_key NSFaceIDUsageDescription "Face ID verrouille Prépa Basket pour que toi seul y accèdes."
           set_key NSPhotoLibraryUsageDescription "Pour importer la photo d'un repas depuis ta galerie."

@@ -1,0 +1,53 @@
+// Module natif PrepaVision (app iPhone) : sauts mesurés avec le suivi du corps en 3D d'ARKit, et trajectoires du
+// ballon détectées par Vision dans la vidéo d'une session de shoot. Sans effet dans le navigateur.
+import { registerPlugin } from "@capacitor/core";
+import { isNative } from "./index";
+
+export interface Trajectory { t0: number; t1: number; confidence: number; coeffs: [number, number, number]; points: [number, number][] }
+interface PrepaVisionPlugin {
+  capabilities(): Promise<{ bodyTracking: boolean; trajectories: boolean }>;
+  jump3D(o: { trials: number }): Promise<{ cancelled: boolean; trials: (number | null)[]; reasons: string[]; statureM: number }>;
+  beginFile(o: { ext: string }): Promise<{ ok: boolean }>;
+  appendFile(o: { data: string }): Promise<void>;
+  analyzeTrajectories(): Promise<{ frames: number; duration: number; trajectories: Trajectory[] }>;
+}
+
+const PrepaVision = registerPlugin<PrepaVisionPlugin>("PrepaVision");
+
+let caps: Promise<{ bodyTracking: boolean; trajectories: boolean }> | null = null;
+export function visionCaps() {
+  if (!isNative()) return Promise.resolve({ bodyTracking: false, trajectories: false });
+  return (caps ??= PrepaVision.capabilities().catch(() => ({ bodyTracking: false, trajectories: false })));
+}
+
+export const jump3D = (trials = 3) => PrepaVision.jump3D({ trials });
+
+/** Envoie la vidéo au module natif par morceaux (le pont Capacitor ne transporte que du texte), puis l'analyse. */
+export async function appleTrajectories(video: Blob, onProgress?: (p: number) => void) {
+  await PrepaVision.beginFile({ ext: /mp4|quicktime/.test(video.type) ? "mp4" : "webm" });
+  const CHUNK = 1_500_000;
+  for (let i = 0; i < video.size; i += CHUNK) {
+    const buf = new Uint8Array(await video.slice(i, i + CHUNK).arrayBuffer());
+    let bin = "";
+    for (let j = 0; j < buf.length; j += 0x8000) bin += String.fromCharCode(...buf.subarray(j, j + 0x8000));
+    await PrepaVision.appendFile({ data: btoa(bin) });
+    onProgress?.(Math.min(1, (i + CHUNK) / video.size) * 0.5);
+  }
+  onProgress?.(0.5);
+  const r = await PrepaVision.analyzeTrajectories();
+  onProgress?.(1);
+  return r;
+}
+
+/** Arcs de tir : trajectoires assez longues, en cloche (concaves vers le bas dans le repère de Vision). */
+export function shotArcs(list: Trajectory[]) {
+  return list.filter((t) => t.t1 - t.t0 >= 0.25 && t.points.length >= 6 && t.coeffs[0] < 0);
+}
+
+/** Comparaison avec les tirs comptés par l'app (fenêtres en ms depuis le début de la vidéo). */
+export function compareShots(arcs: Trajectory[], shots: { t0: number; t1: number }[]) {
+  const near = (a: Trajectory, s: { t0: number; t1: number }) => a.t0 * 1000 <= s.t1 + 600 && a.t1 * 1000 >= s.t0 - 600;
+  const matched = shots.filter((s) => arcs.some((a) => near(a, s))).length;
+  const extra = arcs.filter((a) => !shots.some((s) => near(a, s))).length;
+  return { arcs: arcs.length, matched, missedByApple: shots.length - matched, extra };
+}

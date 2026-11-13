@@ -1,5 +1,6 @@
 // Tests athlétiques trackés par la caméra (US11) : détente, saut sans élan, sprint 10/20 m, agilité.
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
+import { jump3D, visionCaps } from "../../native/vision";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
 import { useApp } from "../../state/app";
@@ -37,6 +38,10 @@ export default function TestTracker() {
   const [slowmo, setSlowmo] = useState<number | null>(null);
   const [record, setRecord] = useState<number | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  // App iPhone : détente mesurée avec le suivi du corps en 3D d'Apple (ARKit, caméra arrière)
+  const [body3d, setBody3d] = useState(false);
+  const [native3d, setNative3d] = useState(false);
+  useEffect(() => { if (def.kind === "pose-jump") visionCaps().then((c) => setBody3d(c.bodyTracking)); }, [def.kind]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -235,6 +240,16 @@ export default function TestTracker() {
   const prev = measurements.filter((x) => x.kind === def.id).sort((a, b) => b.measured_at.localeCompare(a.measured_at))[0]?.value ?? null;
   const last = trials.at(-1);
 
+  async function run3D() {
+    const r = await jump3D(3).catch((e: Error) => { setError(e.message); return null; });
+    if (!r || r.cancelled) return;
+    setNative3d(true);
+    supabase.from("debug_traces").insert({ kind: "jump3d", data: { trials: r.trials, reasons: r.reasons, statureM: r.statureM, height } }).then(() => undefined, () => undefined);
+    setTrials(r.trials.map((value, i) => ({ value, blob: null, reason: value == null ? r.reasons[i] || "Essai non mesuré" : undefined })));
+    S.current.phase = "result";
+    setPhase("result");
+  }
+
   async function finish() {
     setPhase("done");
     stopLoop.current();
@@ -244,7 +259,7 @@ export default function TestTracker() {
     const id = crypto.randomUUID();
     const status = await saveSession({
       session: { id, event_id: eventId, kind: "test", title: def.name, started_at: new Date().toISOString(), duration_s: null,
-        results: { test: def.id, testName: def.name, best, unit: def.unit, digits: def.digits, trials: trials.map((t) => t.value), records }, feeling: null },
+        results: { test: def.id, testName: def.name, best, unit: def.unit, digits: def.digits, trials: trials.map((t) => t.value), records, ...(native3d ? { method: "arkit3d" } : {}) }, feeling: null },
       measurements: [{ kind: def.id, value: best, source: "camera" }],
     });
     setSaved(status === "queued" ? "Hors ligne : résultat gardé sur le téléphone." : records.length ? "Nouveau record enregistré." : "Résultat enregistré.");
@@ -294,8 +309,14 @@ export default function TestTracker() {
             <h1 className="t" style={{ fontSize: 22 }}>Mise en place</h1>
             <ol style={{ margin: "8px 0 12px", paddingLeft: 20, display: "grid", gap: 6, fontSize: 14, lineHeight: "20px" }}>{def.setup.map((s) => <li key={s}>{s}</li>)}</ol>
             {!profile?.height_cm && isPose ? <Notice tone="error">Renseigne ta taille dans ton profil : elle sert à calculer la mesure.</Notice> : null}
-            {warmed ? <button className="pb-btn primary lg block" onClick={openCamera}><Icon name="video" size="sm" />Calibrer la caméra</button>
-              : <WarmupGate onDone={() => { markWarmed(); setWarmed(true); openCamera(); }} />}
+            {warmed ? (
+              <div className="col" style={{ gap: 8 }}>
+                {body3d ? <button className="pb-btn primary lg block" onClick={run3D}><Icon name="bolt" size="sm" />Mesurer en 3D (suivi du corps Apple)</button> : null}
+                {body3d ? <span className="pb-muted" style={{ fontSize: 12 }}>Plus précis : pose le téléphone face à toi, écran vers le mur, à 3 m. Une voix te guide pour les 3 essais.</span> : null}
+                {error && body3d ? <Notice tone="error">{error}</Notice> : null}
+                <button className={`pb-btn lg block${body3d ? "" : " primary"}`} onClick={openCamera}><Icon name="video" size="sm" />{body3d ? "Mesurer avec la caméra avant" : "Calibrer la caméra"}</button>
+              </div>
+            ) : <WarmupGate onDone={() => { markWarmed(); setWarmed(true); if (!body3d) openCamera(); }} />}
           </div>
         ) : null}
         {phase === "calib" ? (
