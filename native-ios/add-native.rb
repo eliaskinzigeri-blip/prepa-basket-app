@@ -22,3 +22,17 @@ patched = xml.sub(/customClass="CAPBridgeViewController" customModule="Capacitor
 abort('contrôleur Capacitor introuvable dans Main.storyboard') if patched == xml
 File.write(sb, patched)
 puts 'contrôleur principal : PrepaBridgeViewController'
+
+# Icône de l'app : celle de la version web (ballon blanc sur fond violet), en une seule taille de 1024 px
+icon_dir = 'ios/App/App/Assets.xcassets/AppIcon.appiconset'
+Dir[File.join(icon_dir, '*.png')].each { |f| File.delete(f) }
+FileUtils.cp(File.join(__dir__, 'AppIcon-1024.png'), File.join(icon_dir, 'AppIcon-1024.png'))
+File.write(File.join(icon_dir, 'Contents.json'), <<~JSON)
+  {
+    "images" : [
+      { "filename" : "AppIcon-1024.png", "idiom" : "universal", "platform" : "ios", "size" : "1024x1024" }
+    ],
+    "info" : { "author" : "xcode", "version" : 1 }
+  }
+JSON
+puts 'icône : AppIcon-1024.png'
