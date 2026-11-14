@@ -23,6 +23,7 @@ public class PrepaVisionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "analyzeTrajectories", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startLive", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopLive", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "teachBall", returnType: CAPPluginReturnPromise),
     ]
     private var live: LiveVision?
 
@@ -42,6 +43,12 @@ public class PrepaVisionPlugin: CAPPlugin, CAPBridgedPlugin {
             if self.live == nil { self.live = LiveVision { [weak self] frame in self?.notifyListeners("liveFrame", data: frame) } }
             self.live!.start(in: vc, webView: wv) { err in if let e = err { call.reject(e) } else { call.resolve() } }
         }
+    }
+
+    /// Ballon touché à l'écran pendant le calibrage : sa couleur est apprise.
+    @objc func teachBall(_ call: CAPPluginCall) {
+        guard let live = live, live.running, let x = call.getDouble("x"), let y = call.getDouble("y") else { call.reject("Caméra arrêtée."); return }
+        live.teach(x: CGFloat(x), y: CGFloat(y)) { ok in call.resolve(["ok": ok]) }
     }
 
     @objc func stopLive(_ call: CAPPluginCall) {

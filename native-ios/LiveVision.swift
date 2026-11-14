@@ -27,6 +27,10 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var lastBall: CGRect?
     private var frameIndex = 0
     private var roi: CGRect?
+    private let color = BallColor()
+    /// Toucher du ballon à l'écran (repère image, origine en haut à gauche) à apprendre sur l'image suivante.
+    var teachAt: CGPoint?
+    var teachResult: ((Bool) -> Void)?
     private var lastJoints: [String: [Double]] = [:]
     private var lostFrames = 0
     private var orientationObserver: NSObjectProtocol?
@@ -61,6 +65,11 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 }
             }
         }
+    }
+
+    /// Apprend la couleur du ballon touché à l'écran (repère image : origine en haut à gauche), sur l'image suivante.
+    func teach(x: CGFloat, y: CGFloat, done: @escaping (Bool) -> Void) {
+        queue.async { self.teachAt = CGPoint(x: x, y: y); self.teachResult = done }
     }
 
     func stop() {
@@ -164,72 +173,76 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         let pose = VNDetectHumanBodyPoseRequest()
         let poseNow = frameIndex % 2 == 0
         var requests: [VNRequest] = poseNow ? [pose] : []
-        // Zone analysée par YOLO (416 × 416 pixels) : autour de la dernière position du ballon s'il est suivi, sinon la zone
-        // du joueur (des épaules au sol) deux images sur trois, l'image entière la troisième. Le ballon y paraît bien plus grand.
+        // YOLO (416 × 416 pixels) : à chaque image tant que la couleur du ballon n'est pas apprise, ensuite une image sur
+        // quatre pour confirmer et rafraîchir les couleurs. Zone analysée : autour du ballon, sinon la zone du joueur.
         let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
         var zone = unit
         if let p = lastBall {
             let side = max(0.4, max(p.width, p.height) * 4)
             zone = CGRect(x: p.midX - side / 2, y: p.midY - side / 2, width: side, height: side).intersection(unit)
         } else if let z = roi, frameIndex % 3 != 0 { zone = z }
-        let yoloRequest: VNCoreMLRequest? = yolo.map { m in
+        let runYolo = !color.learned || frameIndex % 4 == 0
+        let yoloRequest: VNCoreMLRequest? = runYolo ? yolo.map { m in
             let r = VNCoreMLRequest(model: m)
             r.imageCropAndScaleOption = .scaleFill
             if zone != unit { r.regionOfInterest = zone }
             return r
-        }
+        } : nil
         if let y = yoloRequest { requests.append(y) }
         try? handler.perform(requests)
 
         var ball: [String: Any]? = nil
-        var detected = false
         var objs: [[String: Any]] = []
+        var yoloBall: (r: CGRect, conf: Float)? = nil
         if let y = yoloRequest {
-            // boîtes rendues dans le repère de la zone analysée → repère de l'image entière
             let full = { (b: CGRect) -> CGRect in
                 CGRect(x: zone.minX + b.minX * zone.width, y: zone.minY + b.minY * zone.height, width: b.width * zone.width, height: b.height * zone.height)
             }
             let all = (y.results as? [VNRecognizedObjectObservation] ?? [])
             objs = all.prefix(4).map { ["l": $0.labels.first?.identifier ?? "?", "c": Double($0.labels.first?.confidence ?? 0)] }
-            // Un ballon de basket est souvent reconnu comme « orange » par ce type de modèle
-            // Près de la dernière position, une détection moins sûre suffit (ballon flou en plein dribble) ;
-            // ailleurs, il faut une détection franche pour ne pas prendre un autre objet pour le ballon.
-            let balls = all.filter { o in
-                guard let l = o.labels.first else { return false }
-                let r = full(o.boundingBox)
-                let near = lastBall.map { hypot(r.midX - $0.midX, r.midY - $0.midY) < 0.25 } ?? false
-                return (l.identifier == "sports ball" && l.confidence > (near ? 0.05 : 0.12)) || (l.identifier == "orange" && l.confidence > (near ? 0.08 : 0.2))
-            }
-            // le plus proche de la position précédente, sinon le plus sûr
-            let best = balls.min { a, b in
-                guard let p = lastBall else { return a.confidence > b.confidence }
-                let ra = full(a.boundingBox), rb = full(b.boundingBox)
-                return hypot(ra.midX - p.midX, ra.midY - p.midY) < hypot(rb.midX - p.midX, rb.midY - p.midY)
-            }
-            if let b = best {
-                let r = full(b.boundingBox)
-                detected = true
-                lastBall = r
-                let t = VNTrackObjectRequest(detectedObjectObservation: VNDetectedObjectObservation(boundingBox: r))
-                t.trackingLevel = .accurate
-                trackRequest = t
-                lostFrames = 0
-                ball = box(r, w: w, h: h, conf: b.confidence, predicted: false)
-            }
+            // Un ballon peu coloré est souvent vu comme « frisbee » ou « orange » par ce modèle généraliste
+            let names: Set<String> = ["sports ball", "frisbee", "orange"]
+            let best = all.filter { o in names.contains(o.labels.first?.identifier ?? "") && (o.labels.first?.confidence ?? 0) > 0.3 }
+                .max { $0.confidence < $1.confidence }
+            if let b = best { yoloBall = (full(b.boundingBox), b.confidence) }
         }
-        if !detected, let t = trackRequest {
-            try? sequence.perform([t], on: pixels, orientation: .up)
-            if let o = t.results?.first as? VNDetectedObjectObservation, o.confidence > 0.15 {
-                t.inputObservation = o
-                lastBall = o.boundingBox
-                lostFrames = 0
-                ball = box(o.boundingBox, w: w, h: h, conf: o.confidence, predicted: false)
-            } else {
-                lostFrames += 1
-                // quelques images ratées (flou) : on garde la dernière position, annoncée comme prédite
-                if lostFrames <= 4, let p = lastBall { ball = box(p, w: w, h: h, conf: 0.1, predicted: true) }
-                else { trackRequest = nil; lastBall = nil }
+
+        // Repère Vision (origine en bas à gauche) ↔ repère image (origine en haut à gauche)
+        let toImg = { (r: CGRect) -> (CGFloat, CGFloat, CGFloat) in (r.midX, 1 - r.midY, max(r.width, r.height * CGFloat(h) / CGFloat(w)) / 2) }
+
+        // Apprentissage des couleurs : toucher à l'écran (demandé par la page), sinon la première détection franche de YOLO
+        if let tap = teachAt {
+            teachAt = nil
+            color.learn(pixels, cx: tap.x, cy: tap.y, r: 0.025)
+            if let f = color.find(pixels, near: tap) { color.learn(pixels, cx: f.x, cy: f.y, r: f.r); teachResult?(true) }
+            else { teachResult?(color.learned) }
+            teachResult = nil
+        } else if let yb = yoloBall, yb.conf > 0.45, !color.learned {
+            let (cx, cy, r) = toImg(yb.r)
+            color.learn(pixels, cx: cx, cy: cy, r: r)
+        }
+
+        // Ballon : par sa couleur (rapide, résiste au flou), YOLO quand la couleur n'est pas encore apprise ou perdue
+        let near = lastBall.map { CGPoint(x: $0.midX, y: 1 - $0.midY) }
+        if color.learned, let f = color.find(pixels, near: near) {
+            lostFrames = 0
+            lastBall = CGRect(x: f.x - f.r, y: 1 - f.y - f.r * CGFloat(w) / CGFloat(h), width: f.r * 2, height: f.r * 2 * CGFloat(w) / CGFloat(h))
+            ball = ["x": Double(f.x), "y": Double(f.y), "r": Double(f.r), "score": Double(f.score), "predicted": false, "src": "color"]
+            // YOLO confirme au même endroit : couleurs rafraîchies (la lumière change)
+            if let yb = yoloBall {
+                let (cx, cy, r) = toImg(yb.r)
+                if hypot(cx - f.x, cy - f.y) < 0.08 { color.learn(pixels, cx: cx, cy: cy, r: r, blend: 0.1) }
             }
+        } else if let yb = yoloBall {
+            lostFrames = 0
+            lastBall = yb.r
+            ball = box(yb.r, w: w, h: h, conf: yb.conf, predicted: false)
+            ball?["src"] = "yolo"
+        } else {
+            lostFrames += 1
+            // quelques images ratées : on garde la dernière position, annoncée comme prédite
+            if lostFrames <= 4, let p = lastBall { ball = box(p, w: w, h: h, conf: 0.1, predicted: true) }
+            else { lastBall = nil }
         }
 
         var joints: [String: [Double]] = poseNow ? [:] : lastJoints

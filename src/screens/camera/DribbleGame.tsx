@@ -64,7 +64,7 @@ export default function DribbleGame() {
   const statsRef = useRef<(() => Record<string, unknown>) | null>(null);
   const [taught, setTaught] = useState<TeachResult | null>(null);
   // App iPhone : suivi natif (caméra avant derrière la page, ballon YOLOv3 et corps par Apple)
-  const [native, setNative] = useState(false);
+  const [, setNative] = useState(false);
   // Paysage conseillé : plus de largeur à l'image, les cibles sur les côtés sont plus écartées
   const [landscape, setLandscape] = useState(() => window.matchMedia("(orientation: landscape)").matches);
   useEffect(() => {
@@ -159,7 +159,17 @@ export default function DribbleGame() {
       });
       statsRef.current = live ? (vision.stats as () => Record<string, unknown>) : null;
       stopLoop.current = () => { stopFrames(); vision.close(); teachRef.current = null; };
-      teachRef.current = live ? null : (sx, sy) => {
+      // App iPhone : toucher le ballon fait apprendre sa couleur au suivi natif (le résultat arrive un peu après)
+      if (live) {
+        teachRef.current = (sx, sy) => {
+          const c = canvasRef.current;
+          if (!c) return "fail";
+          const b = c.getBoundingClientRect();
+          const m = makeMapper(live.video, b.width, b.height, true);
+          live.teach(m.nx(sx - b.left), m.ny(sy - b.top)).then((ok) => setTaught(ok ? "ok" : "fail"));
+          return "ok";
+        };
+      } else teachRef.current = (sx, sy) => {
         const v = videoRef.current, c = canvasRef.current;
         if (!v || !c) return "fail";
         const b = c.getBoundingClientRect();
@@ -366,9 +376,9 @@ export default function DribbleGame() {
             <div className="col" style={{ gap: 10 }}>
               <Check ok={checks.light} label="Lumière suffisante" hint="rapproche-toi d'une lumière" />
               <Check ok={checks.body} label="Tout ton corps est visible" hint="recule d'un pas" />
-              <Check ok={checks.ball} label="Ballon détecté" hint={native || taught === "ok" || taught === "dark" ? "dribble devant toi" : "touche-le à l'écran"} />
+              <Check ok={checks.ball} label="Ballon détecté" hint={taught === "ok" || taught === "dark" ? "dribble devant toi" : "touche-le à l'écran"} />
             </div>
-            {!native && (!checks.ball || taught !== "ok") ? <p role="status" style={{ margin: "10px 0 0", fontSize: 13, fontWeight: 600 }}>
+            {!checks.ball || taught !== "ok" ? <p role="status" style={{ margin: "10px 0 0", fontSize: 13, fontWeight: 600 }}>
               {taught === "ok" ? "Couleur du ballon apprise : dribble devant toi." : taught === "dark" ? "Ton ballon est trop sombre à l'image : allume plus de lumière, pose le téléphone plus haut, puis touche-le à nouveau." : taught === "fail" ? "Couleur pas reconnue : touche bien le milieu du ballon, dans un endroit éclairé." : "Touche ton ballon à l'écran pour que l'app apprenne sa couleur."}
             </p> : null}
             {error ? <div style={{ marginTop: 12 }} className="col"><Notice tone="error">{error}</Notice><button className="pb-btn" onClick={() => { stopLoop.current(); stopCamera(streamRef.current); openCamera(); }}>Réessayer</button></div> : null}

@@ -9,6 +9,7 @@ interface PrepaVisionPlugin {
   capabilities(): Promise<{ bodyTracking: boolean; trajectories: boolean; liveVision: boolean }>;
   startLive(): Promise<void>;
   stopLive(): Promise<void>;
+  teachBall(o: { x: number; y: number }): Promise<{ ok: boolean }>;
   addListener(e: "liveFrame", fn: (f: LiveFrame) => void): Promise<PluginListenerHandle>;
   jump3D(o: { trials: number }): Promise<{ cancelled: boolean; trials: (number | null)[]; reasons: string[]; statureM: number }>;
   beginFile(o: { ext: string }): Promise<{ ok: boolean }>;
@@ -31,7 +32,7 @@ export function visionCaps(): Promise<Caps> {
 interface LiveFrame {
   t: number; w: number; h: number; light: number;
   objs?: { l: string; c: number }[];
-  ball: { x: number; y: number; r: number; score: number; predicted: boolean } | null;
+  ball: { x: number; y: number; r: number; score: number; predicted: boolean; src?: "color" | "yolo" } | null;
   pose: Record<string, [number, number, number]> | null;
 }
 type Landmark = { x: number; y: number; z: number; visibility: number };
@@ -40,12 +41,12 @@ const KNEES: Record<string, number> = { lKnee: 25, rKnee: 26 };
 /** Caméra avant native derrière la page, ballon (YOLOv3) et corps (Vision) à chaque image, au format de la vision web. */
 export async function startNativeLive() {
   let last: LiveFrame | null = null;
-  let frames = 0, balls = 0, tracked = 0;
+  let frames = 0, balls = 0, tracked = 0, byColor = 0, byYolo = 0;
   // diagnostic : ce que le modèle reconnaît (étiquette → nombre et meilleure confiance)
   const labels: Record<string, { n: number; max: number }> = {};
   const handle = await PrepaVision.addListener("liveFrame", (f) => {
     last = f; frames++;
-    if (f.ball) { if (f.ball.predicted) tracked++; else balls++; }
+    if (f.ball) { if (f.ball.predicted) tracked++; else balls++; if (f.ball.src === "color") byColor++; if (f.ball.src === "yolo") byYolo++; }
     for (const o of f.objs ?? []) { const e = (labels[o.l] ??= { n: 0, max: 0 }); e.n++; e.max = Math.max(e.max, Math.round(o.c * 100) / 100); }
   });
   document.documentElement.classList.add("native-cam");
@@ -70,7 +71,9 @@ export async function startNativeLive() {
       (video as unknown as { videoWidth: number; videoHeight: number }).videoHeight = f.h;
       return { ball: f.ball, pose: pose(f.pose), light: f.light };
     },
-    stats: () => ({ native: true, v: 2, frames, balls, tracked, labels }),
+    stats: () => ({ native: true, v: 3, frames, balls, tracked, byColor, byYolo, labels }),
+    /** Ballon touché à l'écran (repère image : 0 à 1, non miroir) : sa couleur est apprise. */
+    teach: (x: number, y: number) => PrepaVision.teachBall({ x, y }).then((r) => r.ok).catch(() => false),
     close() {
       handle.remove();
       PrepaVision.stopLive().catch(() => undefined);
