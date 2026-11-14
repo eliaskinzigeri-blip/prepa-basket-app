@@ -36,7 +36,7 @@ export default function Progress() {
 
   // une priorité sans indicateur connu est ignorée plutôt que de faire planter l'écran
   const priorities = (profile?.priorities_high ?? []).flatMap((s) => { const sk = skill(s), ind = INDICATORS[SKILL_INDICATOR[s]]; return sk && ind ? [{ skill: sk, ind }] : []; });
-  const choices = [...new Set([...priorities.map((p) => p.ind.kind), "shoot_pct", "weight", "volume", "vertical", "sprint10", "rhr", "hrv", "sleep", ...(hasRower(profile) ? ["rower_pace20"] : [])])];
+  const choices = [...new Set([...priorities.map((p) => p.ind.kind), "shoot_pct", "weight", "volume", "vertical", "sprint10", "rhr", "hrv", ...(hasRower(profile) ? ["rower_pace20"] : [])])];
   const [chart, setChart] = useState<string>(choices[0]);
   const ind = INDICATORS[chart];
   const points = weekly(allSeries(chart), from, t).map((p) => ({ label: `S${isoWeek(p.week)}`, value: p.value }));

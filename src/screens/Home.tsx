@@ -1,7 +1,7 @@
 import { samePath, useActiveWorkout } from "../lib/activeWorkout";
 import { useLight, useReadiness } from "../state/readiness";
 import { ReadyDot } from "../components/Readiness";
-import { SleepCard } from "./Sleep";
+import { VfcCard } from "./Sleep";
 import { STAGE_LABEL, levelIndex } from "../lib/progression";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -83,7 +83,7 @@ export function Home() {
       <Link to="/shoot/historique" className="pb-btn block" style={{ marginTop: 10 }}><Icon name="play" size="sm" />Mes sessions de shoot : analyses et replays</Link>
       <Link to="/pesee" className="pb-btn block" style={{ marginTop: 10 }}><Icon name="scale" size="sm" />Me peser avec ma balance</Link>
 
-      <SleepCard />
+      <VfcCard />
 
       {hero ? <HeroCard e={hero} onStart={() => nav(startPath(hero))} /> : (
         <div className="pb-glass hero empty" style={{ marginTop: 14 }}>

@@ -13,7 +13,8 @@ const read = (d: string) => { try { return localStorage.getItem(KEY(d)) === "1";
 
 export function useReadiness(day = today()): ReadinessResult & { keep: boolean; setKeep: (v: boolean) => void; streak: number } {
   const app = useApp();
-  const sleepLogs = useMemo(() => app.sleepLogs ?? [], [app.sleepLogs]);
+  // Le questionnaire de sommeil a été retiré : la forme du jour ne dépend plus que de la VFC du matin
+  const sleepLogs = useMemo(() => [] as typeof app.sleepLogs, []);
   const measurements = app.measurements;
   const hrv = useMemo(() => (measurements ?? []).filter((m) => m.kind === "hrv").map((m) => ({ value: Number(m.value), measured_at: m.measured_at })), [measurements]);
   const r = useMemo(() => readinessFor(day, sleepLogs, hrv), [day, sleepLogs, hrv]);

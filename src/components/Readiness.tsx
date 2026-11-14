@@ -71,7 +71,7 @@ export function ReadinessBanner({ e }: { e: CalEvent }) {
         <button className="pb-btn primary" disabled={busy} onClick={swap}>Faire une récupération de 20 min à la place et décaler la séance</button>
       ) : null}
       {!moved ? <button className="pb-btn" onClick={() => r.setKeep(true)}>Je me sens bien, je garde la séance normale</button> : null}
-      <Link to="/sommeil" className="pb-subtle" style={{ fontSize: 13 }}>Voir ma nuit et ma VFC</Link>
+      <Link to="/sommeil" className="pb-subtle" style={{ fontSize: 13 }}>Voir ma VFC</Link>
     </div>
   );
 }

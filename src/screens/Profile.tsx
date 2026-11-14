@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { disablePush, enablePush, pushSupported, savedToken, testPush } from "../lib/push";
 import { faceIdAvailable, faceIdEnabled, isNative, setFaceId } from "../native";
 import { useEffect } from "react";
-import { CHRONO_LABEL, bedtimeFor, clockOf } from "../lib/sleep";
 import { Notice } from "../components/ui";
 import { useApp } from "../state/app";
 import { Icon, type IconName } from "../components/Icon";
@@ -49,7 +48,7 @@ export default function Profile() {
       <div className="lbl section">Programme</div>
       <div className="pb-glass" style={{ padding: "4px 0" }}>
         <Row to="/objectifs" icon="target" title="Mes objectifs" sub="Ils choisissent tes tests et orientent ton programme" />
-        <Row to="/sommeil" icon="timer" title="Sommeil et horloge biologique" sub={p.chronotype_enabled === false ? "Journal, VFC du matin, heure de coucher" : `${p.chronotype ? CHRONO_LABEL[p.chronotype] : "Chronotype en cours de calcul"} · au lit à ${clockOf(bedtimeFor(p.wake_school_min ?? 420))}`} />
+        <Row to="/sommeil" icon="heart" title="VFC du matin" sub="Ta zone normale et la tendance sur 7 jours" />
         <Row to="/profil/tests" icon="timer" title="Fréquence des tests" sub={`Toutes les ${p.test_every_weeks ?? 4} semaines`} />
         <Row to="/exercices" icon="dumbbell" title="Bibliothèque d'exercices" sub="Pliométrie, renfo, cardio, mobilité…" />
         <Row to="/profil/priorites" icon="target" title="Priorités" sub={p.priorities_high.concat(p.priorities_low).map((s) => skill(s)?.short).join(", ")} />
@@ -62,8 +61,7 @@ export default function Profile() {
       <div className="pb-glass" style={{ padding: "4px 0" }}>
         {isNative() ? <div className="pb-li"><div className="t">Rappels programmés sur ce téléphone<small>Recalculés à chaque ouverture de l'app, pour les 7 prochains jours</small></div></div> : <PushRow />}
         <div className="pb-li"><div className="t">Séance dans 30 min<small>Avec ta forme du jour : normale, allégée ou récupération</small></div><Toggle on={p.notif_session} onChange={(v) => { set({ notif_session: v }); askNotif(v); }} label="Rappel 30 min avant séance" /></div>
-        <div className="pb-li"><div className="t">Le matin<small>À ton heure de lever prévue par NoteFlow (sinon ton lever habituel) : mesure ta VFC, puis note ta nuit</small></div><Toggle on={p.notif_morning ?? true} onChange={(v) => set({ notif_morning: v })} label="Rappels du matin" /></div>
-        <div className="pb-li"><div className="t">Heure de coucher<small>{p.notif_bedtime === false ? "Coupé : ta routine NoteFlow te rappelle déjà l'heure de coucher" : `30 min avant ${clockOf(bedtimeFor(p.wake_school_min ?? 420))}, la veille des jours de cours`}</small></div><Toggle on={p.notif_bedtime ?? true} onChange={(v) => set({ notif_bedtime: v })} label="Rappel de l'heure de coucher" /></div>
+        <div className="pb-li"><div className="t">Le matin<small>Mesure ta VFC avant de te lever, à ton heure de lever prévue par NoteFlow</small></div><Toggle on={p.notif_morning ?? true} onChange={(v) => set({ notif_morning: v })} label="Rappels du matin" /></div>
         <div className="pb-li"><div className="t">Rappel de match</div><Toggle on={p.notif_match} onChange={(v) => { set({ notif_match: v }); askNotif(v); }} label="Rappel de match" /></div>
       </div>
 
