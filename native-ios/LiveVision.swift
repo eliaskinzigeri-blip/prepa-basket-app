@@ -224,7 +224,10 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
         // Ballon : par sa couleur (rapide, résiste au flou), YOLO quand la couleur n'est pas encore apprise ou perdue
         let near = lastBall.map { CGPoint(x: $0.midX, y: 1 - $0.midY) }
-        if color.learned, let f = color.find(pixels, near: near) {
+        // zone du joueur (repère image) et mains : le ballon de dribble reste près du joueur
+        let region = roi.map { CGRect(x: $0.minX, y: 1 - $0.maxY, width: $0.width, height: $0.height) }
+        let hands = ["lWrist", "rWrist"].compactMap { k in lastJoints[k].map { CGPoint(x: $0[0], y: $0[1]) } }
+        if color.learned, let f = color.find(pixels, near: near, region: region, hands: hands) {
             lostFrames = 0
             lastBall = CGRect(x: f.x - f.r, y: 1 - f.y - f.r * CGFloat(w) / CGFloat(h), width: f.r * 2, height: f.r * 2 * CGFloat(w) / CGFloat(h))
             ball = ["x": Double(f.x), "y": Double(f.y), "r": Double(f.r), "score": Double(f.score), "predicted": false, "src": "color"]
@@ -262,7 +265,7 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             if ok.count >= 4 {
                 let xs = ok.map { $0.location.x }, ys = ok.map { $0.location.y }
                 let minX = xs.min()!, maxX = xs.max()!, topY = ys.max()!
-                let wide = max(0.35, (maxX - minX) * 2.2)
+                let wide = max(0.45, (maxX - minX) * 2.8)
                 let cx = (minX + maxX) / 2
                 let x0 = max(0, cx - wide / 2), x1 = min(1, cx + wide / 2)
                 let y1 = min(1, topY + 0.05)
