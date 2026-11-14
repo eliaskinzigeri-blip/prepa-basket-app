@@ -318,8 +318,9 @@ export function MealScan() {
           <div className="pb-chips chips-wrap" aria-label="Où as-tu mangé ?">
             {(Object.keys(PLACE_LABEL) as Place[]).map((p) => <Chip key={p} active={place === p} onClick={() => setPlace(p)}>{PLACE_LABEL[p]}</Chip>)}
           </div>
-          <label className="lbl" htmlFor="desc">Précisions (facultatif avec une photo)</label>
-          <textarea id="desc" className="input" rows={3} style={{ height: "auto", padding: 12 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Pâtes bolognaise, j'ai tout fini, un yaourt en plus…" />
+          <label className="lbl" htmlFor="desc">Recette ou précisions (facultatif avec une photo)</label>
+          <textarea id="desc" className="input" rows={4} maxLength={1500} style={{ height: "auto", padding: 12 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="150 g de farine, 2 œufs, 200 ml de lait… j'ai tout mangé" />
+          <span className="pb-subtle" style={{ fontSize: 12 }}>Les quantités que tu donnes (ou une capture de la recette) comptent plus que la photo : c'est le plus précis. Tu as suivi une idée de repas de l'app ? Son bouton « Je mange ça » enregistre directement ses calories.</span>
           <button className="pb-btn" onClick={() => analyze(shots.map((s) => s.url), description.trim(), { meal: mealType, at: eatenAt, place })} disabled={busy || (!shots.length && description.trim().length < 3)}>{result ? "Réanalyser" : "Analyser"}</button>
         </div>
       ) : null}
