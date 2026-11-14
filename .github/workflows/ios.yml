@@ -44,6 +44,8 @@ jobs:
       - name: Module natif PrepaVision (sauts en 3D, trajectoires du ballon)
         run: |
           gem list -i xcodeproj > /dev/null || sudo gem install xcodeproj --no-document
+          # Détection du ballon (jeux de dribble) : modèle YOLOv3 publié par Apple
+          curl -fsSL -o native-ios/YOLOv3Int8LUT.mlmodel https://ml-assets.apple.com/coreml/models/Image/ObjectDetection/YOLOv3/YOLOv3Int8LUT.mlmodel
           ruby native-ios/add-native.rb
 
       - name: Autorisations iOS (Bluetooth, caméra, Face ID, notifications)

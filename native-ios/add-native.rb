@@ -6,7 +6,8 @@ require 'fileutils'
 proj = Xcodeproj::Project.open('ios/App/App.xcodeproj')
 target = proj.targets.find { |t| t.name == 'App' } or abort('cible App introuvable')
 group = proj.main_group['App'] or abort('groupe App introuvable')
-Dir[File.join(__dir__, '*.swift')].each do |src|
+# Code Swift et modèle Core ML (YOLOv3 d'Apple, téléchargé à la compilation) : compilés avec l'app
+Dir[File.join(__dir__, '*.{swift,mlmodel}')].each do |src|
   name = File.basename(src)
   FileUtils.cp(src, File.join('ios/App/App', name))
   next if group.files.any? { |f| f.path == name }

@@ -21,13 +21,32 @@ public class PrepaVisionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "beginFile", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "appendFile", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "analyzeTrajectories", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startLive", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopLive", returnType: CAPPluginReturnPromise),
     ]
+    private var live: LiveVision?
 
     private var fileURL: URL?
     private var fileHandle: FileHandle?
 
     @objc func capabilities(_ call: CAPPluginCall) {
-        call.resolve(["bodyTracking": ARBodyTrackingConfiguration.isSupported, "trajectories": true])
+        let yolo = Bundle.main.url(forResource: "YOLOv3Int8LUT", withExtension: "mlmodelc") != nil
+        call.resolve(["bodyTracking": ARBodyTrackingConfiguration.isSupported, "trajectories": true, "liveVision": yolo])
+    }
+
+    // MARK: suivi en direct (jeux de dribble)
+
+    @objc func startLive(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let vc = self.bridge?.viewController, let wv = self.bridge?.webView else { call.reject("App pas prête."); return }
+            if self.live == nil { self.live = LiveVision { [weak self] frame in self?.notifyListeners("liveFrame", data: frame) } }
+            self.live!.start(in: vc, webView: wv) { err in if let e = err { call.reject(e) } else { call.resolve() } }
+        }
+    }
+
+    @objc func stopLive(_ call: CAPPluginCall) {
+        live?.stop()
+        call.resolve()
     }
 
     // MARK: sauts en 3D

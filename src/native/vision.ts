@@ -1,11 +1,15 @@
 // Module natif PrepaVision (app iPhone) : sauts mesurés avec le suivi du corps en 3D d'ARKit, et trajectoires du
 // ballon détectées par Vision dans la vidéo d'une session de shoot. Sans effet dans le navigateur.
-import { registerPlugin } from "@capacitor/core";
+import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { LM } from "../vision/models";
 import { isNative } from "./index";
 
 export interface Trajectory { t0: number; t1: number; confidence: number; coeffs: [number, number, number]; points: [number, number][] }
 interface PrepaVisionPlugin {
-  capabilities(): Promise<{ bodyTracking: boolean; trajectories: boolean }>;
+  capabilities(): Promise<{ bodyTracking: boolean; trajectories: boolean; liveVision: boolean }>;
+  startLive(): Promise<void>;
+  stopLive(): Promise<void>;
+  addListener(e: "liveFrame", fn: (f: LiveFrame) => void): Promise<PluginListenerHandle>;
   jump3D(o: { trials: number }): Promise<{ cancelled: boolean; trials: (number | null)[]; reasons: string[]; statureM: number }>;
   beginFile(o: { ext: string }): Promise<{ ok: boolean }>;
   appendFile(o: { data: string }): Promise<void>;
@@ -14,10 +18,58 @@ interface PrepaVisionPlugin {
 
 const PrepaVision = registerPlugin<PrepaVisionPlugin>("PrepaVision");
 
-let caps: Promise<{ bodyTracking: boolean; trajectories: boolean }> | null = null;
-export function visionCaps() {
-  if (!isNative()) return Promise.resolve({ bodyTracking: false, trajectories: false });
-  return (caps ??= PrepaVision.capabilities().catch(() => ({ bodyTracking: false, trajectories: false })));
+type Caps = { bodyTracking: boolean; trajectories: boolean; liveVision: boolean };
+const NONE: Caps = { bodyTracking: false, trajectories: false, liveVision: false };
+let caps: Promise<Caps> | null = null;
+export function visionCaps(): Promise<Caps> {
+  if (!isNative()) return Promise.resolve(NONE);
+  return (caps ??= PrepaVision.capabilities().then((c) => ({ ...NONE, ...c })).catch(() => NONE));
+}
+
+// ---------- suivi en direct (jeux de dribble) ----------
+
+interface LiveFrame {
+  t: number; w: number; h: number; light: number;
+  ball: { x: number; y: number; r: number; score: number; predicted: boolean } | null;
+  pose: Record<string, [number, number, number]> | null;
+}
+type Landmark = { x: number; y: number; z: number; visibility: number };
+const KNEES: Record<string, number> = { lKnee: 25, rKnee: 26 };
+
+/** Caméra avant native derrière la page, ballon (YOLOv3) et corps (Vision) à chaque image, au format de la vision web. */
+export async function startNativeLive() {
+  let last: LiveFrame | null = null;
+  let frames = 0, balls = 0;
+  const handle = await PrepaVision.addListener("liveFrame", (f) => { last = f; frames++; if (f.ball) balls++; });
+  document.documentElement.classList.add("native-cam");
+  try { await PrepaVision.startLive(); } catch (e) { handle.remove(); document.documentElement.classList.remove("native-cam"); throw e; }
+  // « vidéo » vue par le reste du jeu : seulement ses dimensions (pour placer les points à l'écran)
+  const video = { videoWidth: 720, videoHeight: 1280, readyState: 4 } as unknown as HTMLVideoElement;
+  const pose = (p: LiveFrame["pose"]): Landmark[] | null => {
+    if (!p) return null;
+    const out: Landmark[] = Array.from({ length: 33 }, () => ({ x: Number.NaN, y: Number.NaN, z: 0, visibility: 0 }));
+    for (const [k, v] of Object.entries(p)) {
+      const i = (LM as Record<string, number>)[k] ?? KNEES[k];
+      if (i != null) out[i] = { x: v[0], y: v[1], z: 0, visibility: v[2] };
+    }
+    return out;
+  };
+  return {
+    video,
+    frame() {
+      const f = last;
+      if (!f) return { ball: null, pose: null, light: 0 };
+      (video as unknown as { videoWidth: number; videoHeight: number }).videoWidth = f.w;
+      (video as unknown as { videoWidth: number; videoHeight: number }).videoHeight = f.h;
+      return { ball: f.ball, pose: pose(f.pose), light: f.light };
+    },
+    stats: () => ({ native: true, frames, balls }),
+    close() {
+      handle.remove();
+      PrepaVision.stopLive().catch(() => undefined);
+      document.documentElement.classList.remove("native-cam");
+    },
+  };
 }
 
 export const jump3D = (trials = 3) => PrepaVision.jump3D({ trials });

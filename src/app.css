@@ -259,3 +259,7 @@ a.pb-btn.primary{color:var(--ink)}
 .pb-link{background:none;border:0;padding:0;color:inherit;font:inherit;text-decoration:underline;cursor:pointer;min-height:24px}
 
 .pb-btn.sm{height:auto;min-height:40px;padding:0 12px;font-size:13px}
+
+/* App iPhone : caméra native affichée derrière la page (jeux de dribble), la page devient transparente */
+.native-cam, .native-cam body, .native-cam #root, .native-cam .cam-screen, .native-cam .pb-cam { background: transparent !important; }
+.native-cam .cam-screen video { display: none; }

@@ -14,6 +14,15 @@ import { bounceCounter, brightness, LM } from "../../vision/models";
 import { startVision, type TeachResult } from "../../vision/engine";
 import { cameraError, countdown, frameLoop, hitSound, missSound, speak, startCamera, stopCamera } from "../../vision/media";
 import { Check, makeMapper, markWarmed, WarmupGate, warmedRecently, type Mapper } from "./common";
+import { startNativeLive, visionCaps } from "../../native/vision";
+
+/** Boucle d'affichage sans élément vidéo (caméra native derrière la page). */
+function rafLoop(fn: (now: number) => void): () => void {
+  let stop = false;
+  const tick = (now: number) => { if (stop) return; fn(now); requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  return () => { stop = true; };
+}
 
 type Phase = "setup" | "calib" | "count" | "play" | "done";
 type Spot = "G" | "D" | "B" | "J";
@@ -52,6 +61,8 @@ export default function DribbleGame() {
   // toucher le ballon à l'écran pendant le calibrage : apprend sa couleur quand le modèle ne le trouve pas
   const teachRef = useRef<((sx: number, sy: number) => TeachResult) | null>(null);
   const [taught, setTaught] = useState<TeachResult | null>(null);
+  // App iPhone : suivi natif (caméra avant derrière la page, ballon YOLOv3 et corps par Apple)
+  const [native, setNative] = useState(false);
   // Paysage conseillé : plus de largeur à l'image, les cibles sur les côtés sont plus écartées
   const [landscape, setLandscape] = useState(() => window.matchMedia("(orientation: landscape)").matches);
   useEffect(() => {
@@ -81,10 +92,15 @@ export default function DribbleGame() {
     setError(null);
     try {
       setLoading("Démarrage de la caméra…");
-      streamRef.current = await startCamera(videoRef.current!, "user");
-      setLoading("Chargement du suivi ballon et mains…");
+      // App iPhone : détection native (puce d'IA de l'iPhone), bien plus fiable que la version web sur iPhone
+      const live = (await visionCaps()).liveVision ? await startNativeLive() : null;
+      setNative(Boolean(live));
+      if (!live) streamRef.current = await startCamera(videoRef.current!, "user");
+      setLoading(live ? null : "Chargement du suivi ballon et mains…");
       // modèles dans un worker, ballon suivi à chaque image : l'affichage n'attend jamais le modèle
-      const vision = await startVision({ ball: true, pose: true });
+      const vision = live
+        ? { frame: () => live.frame(), stats: live.stats, close: live.close, teach: (): TeachResult => "ok" }
+        : await startVision({ ball: true, pose: true });
       setLoading(null);
       const seen: boolean[] = [];
       let last = 0;
@@ -93,8 +109,9 @@ export default function DribbleGame() {
       let anchor: { x: number; y: number; t: number } | null = null;
       let lightOk = false;
       let reported = false;
-      const stopFrames = frameLoop(videoRef.current!, (now) => {
-        const v = videoRef.current, c = canvasRef.current;
+      const loop = live ? rafLoop : (fn: (now: number) => void) => frameLoop(videoRef.current!, fn);
+      const stopFrames = loop((now) => {
+        const v = live ? live.video : videoRef.current, c = canvasRef.current;
         if (!v || !c || v.readyState < 2) return;
         const ts = performance.now();
         if (ts - last < 12) return; // ≤ 80 analyses/s
@@ -102,7 +119,8 @@ export default function DribbleGame() {
         const W = (c.width = c.clientWidth * devicePixelRatio) / devicePixelRatio;
         const H = (c.height = c.clientHeight * devicePixelRatio) / devicePixelRatio;
         const m = makeMapper(v, W, H, true);
-        const { ball, pose: lms } = vision.frame(v, ts);
+        const fr = vision.frame(v, ts) as ReturnType<typeof vision.frame> & { light?: number };
+        const { ball, pose: lms } = fr;
         const ctx = c.getContext("2d")!;
         ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
         ctx.clearRect(0, 0, W, H);
@@ -125,7 +143,7 @@ export default function DribbleGame() {
           } else if (anchor) { anchor = null; setHold(null); }
           if (Math.floor(now / 250) !== st.lastCheck) {
             st.lastCheck = Math.floor(now / 250);
-            lightOk = brightness(v, scratch.current) > 55; // lu 4 fois par seconde : lire les pixels coûte
+            lightOk = (live ? fr.light ?? 0 : brightness(v, scratch.current)) > 55; // lu 4 fois par seconde : lire les pixels coûte
             setChecks({ light: lightOk, body: bodyOk, ball: seen.filter(Boolean).length >= 6 });
             // diagnostic : 15 s de calibrage sans ballon → on enregistre ce que voit le détecteur
             if (!reported && ts - calibStart > 15000 && !seen.some(Boolean)) {
@@ -138,7 +156,7 @@ export default function DribbleGame() {
         }
       });
       stopLoop.current = () => { stopFrames(); vision.close(); teachRef.current = null; };
-      teachRef.current = (sx, sy) => {
+      teachRef.current = live ? null : (sx, sy) => {
         const v = videoRef.current, c = canvasRef.current;
         if (!v || !c) return "fail";
         const b = c.getBoundingClientRect();
@@ -342,9 +360,9 @@ export default function DribbleGame() {
             <div className="col" style={{ gap: 10 }}>
               <Check ok={checks.light} label="Lumière suffisante" hint="rapproche-toi d'une lumière" />
               <Check ok={checks.body} label="Tout ton corps est visible" hint="recule d'un pas" />
-              <Check ok={checks.ball} label="Ballon détecté" hint={taught === "ok" || taught === "dark" ? "dribble devant toi" : "touche-le à l'écran"} />
+              <Check ok={checks.ball} label="Ballon détecté" hint={native || taught === "ok" || taught === "dark" ? "dribble devant toi" : "touche-le à l'écran"} />
             </div>
-            {!checks.ball || taught !== "ok" ? <p role="status" style={{ margin: "10px 0 0", fontSize: 13, fontWeight: 600 }}>
+            {!native && (!checks.ball || taught !== "ok") ? <p role="status" style={{ margin: "10px 0 0", fontSize: 13, fontWeight: 600 }}>
               {taught === "ok" ? "Couleur du ballon apprise : dribble devant toi." : taught === "dark" ? "Ton ballon est trop sombre à l'image : allume plus de lumière, pose le téléphone plus haut, puis touche-le à nouveau." : taught === "fail" ? "Couleur pas reconnue : touche bien le milieu du ballon, dans un endroit éclairé." : "Touche ton ballon à l'écran pour que l'app apprenne sa couleur."}
             </p> : null}
             {error ? <div style={{ marginTop: 12 }} className="col"><Notice tone="error">{error}</Notice><button className="pb-btn" onClick={() => { stopLoop.current(); stopCamera(streamRef.current); openCamera(); }}>Réessayer</button></div> : null}
