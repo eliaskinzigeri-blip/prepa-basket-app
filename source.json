@@ -18,12 +18,12 @@
       "category": "health",
       "versions": [
         {
-          "version": "1.0.10",
-          "buildVersion": "10",
-          "date": "2026-11-14T11:23:02Z",
-          "localizedDescription": "Compilation 10",
-          "downloadURL": "https://github.com/eliaskinzigeri-blip/prepa-basket-app/releases/download/v1.0.10/PrepaBasket.ipa",
-          "size": 65553345,
+          "version": "1.0.11",
+          "buildVersion": "11",
+          "date": "2026-11-14T11:37:46Z",
+          "localizedDescription": "Compilation 11",
+          "downloadURL": "https://github.com/eliaskinzigeri-blip/prepa-basket-app/releases/download/v1.0.11/PrepaBasket.ipa",
+          "size": 65558908,
           "minOSVersion": "14.0"
         }
       ],
