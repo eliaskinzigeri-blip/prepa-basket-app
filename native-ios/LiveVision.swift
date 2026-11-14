@@ -27,6 +27,7 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var lastBall: CGRect?
     private var frameIndex = 0
     private var roi: CGRect?
+    private var lastJoints: [String: [Double]] = [:]
     private var lostFrames = 0
     private var orientationObserver: NSObjectProtocol?
     private(set) var running = false
@@ -98,6 +99,14 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             cam.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 60)
             cam.unlockForConfiguration()
         }
+        // Temps de pose court (1/250 s au plus) : en intérieur, la caméra allonge sinon la pose et un ballon en dribble
+        // devient une traînée floue que le modèle ne reconnaît plus. L'image est un peu plus granuleuse, mais nette.
+        if (try? cam.lockForConfiguration()) != nil {
+            if cam.isExposureModeSupported(.continuousAutoExposure) { cam.exposureMode = .continuousAutoExposure }
+            let fast = CMTime(value: 1, timescale: 250)
+            cam.activeMaxExposureDuration = CMTimeMaximum(fast, cam.activeFormat.minExposureDuration)
+            cam.unlockForConfiguration()
+        }
         output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
@@ -151,18 +160,24 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         frameIndex += 1
         let w = CVPixelBufferGetWidth(pixels), h = CVPixelBufferGetHeight(pixels)
         let handler = VNImageRequestHandler(cvPixelBuffer: pixels, orientation: .up)
+        // Corps une image sur deux (il bouge moins vite que le ballon), ballon à chaque image
         let pose = VNDetectHumanBodyPoseRequest()
-        var requests: [VNRequest] = [pose]
-        // YOLO à chaque image tant que le ballon n'est pas suivi, une image sur deux ensuite (le suivi Vision fait le lien).
-        // Deux images sur trois, il n'analyse que la zone du joueur (des épaules au sol) : le ballon y paraît bien plus
-        // grand pour le modèle (416 × 416 pixels), qui le rate sinon quand il est petit et flou.
-        let useRoi = roi != nil && frameIndex % 3 != 0
-        let yoloRequest: VNCoreMLRequest? = (frameIndex % 2 == 0 || lastBall == nil) ? yolo.map { m in
+        let poseNow = frameIndex % 2 == 0
+        var requests: [VNRequest] = poseNow ? [pose] : []
+        // Zone analysée par YOLO (416 × 416 pixels) : autour de la dernière position du ballon s'il est suivi, sinon la zone
+        // du joueur (des épaules au sol) deux images sur trois, l'image entière la troisième. Le ballon y paraît bien plus grand.
+        let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
+        var zone = unit
+        if let p = lastBall {
+            let side = max(0.4, max(p.width, p.height) * 4)
+            zone = CGRect(x: p.midX - side / 2, y: p.midY - side / 2, width: side, height: side).intersection(unit)
+        } else if let z = roi, frameIndex % 3 != 0 { zone = z }
+        let yoloRequest: VNCoreMLRequest? = yolo.map { m in
             let r = VNCoreMLRequest(model: m)
             r.imageCropAndScaleOption = .scaleFill
-            if useRoi, let z = roi { r.regionOfInterest = z }
+            if zone != unit { r.regionOfInterest = zone }
             return r
-        } : nil
+        }
         if let y = yoloRequest { requests.append(y) }
         try? handler.perform(requests)
 
@@ -170,7 +185,6 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         var detected = false
         var objs: [[String: Any]] = []
         if let y = yoloRequest {
-            let zone = useRoi ? (roi ?? CGRect(x: 0, y: 0, width: 1, height: 1)) : CGRect(x: 0, y: 0, width: 1, height: 1)
             // boîtes rendues dans le repère de la zone analysée → repère de l'image entière
             let full = { (b: CGRect) -> CGRect in
                 CGRect(x: zone.minX + b.minX * zone.width, y: zone.minY + b.minY * zone.height, width: b.width * zone.width, height: b.height * zone.height)
@@ -178,9 +192,13 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             let all = (y.results as? [VNRecognizedObjectObservation] ?? [])
             objs = all.prefix(4).map { ["l": $0.labels.first?.identifier ?? "?", "c": Double($0.labels.first?.confidence ?? 0)] }
             // Un ballon de basket est souvent reconnu comme « orange » par ce type de modèle
+            // Près de la dernière position, une détection moins sûre suffit (ballon flou en plein dribble) ;
+            // ailleurs, il faut une détection franche pour ne pas prendre un autre objet pour le ballon.
             let balls = all.filter { o in
                 guard let l = o.labels.first else { return false }
-                return (l.identifier == "sports ball" && l.confidence > 0.12) || (l.identifier == "orange" && l.confidence > 0.2)
+                let r = full(o.boundingBox)
+                let near = lastBall.map { hypot(r.midX - $0.midX, r.midY - $0.midY) < 0.25 } ?? false
+                return (l.identifier == "sports ball" && l.confidence > (near ? 0.05 : 0.12)) || (l.identifier == "orange" && l.confidence > (near ? 0.08 : 0.2))
             }
             // le plus proche de la position précédente, sinon le plus sûr
             let best = balls.min { a, b in
@@ -214,16 +232,19 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         }
 
-        var joints: [String: [Double]] = [:]
-        if let obs = pose.results?.first, let pts = try? obs.recognizedPoints(.all) {
+        var joints: [String: [Double]] = poseNow ? [:] : lastJoints
+        if poseNow, let obs = pose.results?.first, let pts = try? obs.recognizedPoints(.all) {
             for (name, key) in LiveVision.joints {
                 if let p = pts[name], p.confidence > 0.1 {
                     joints[key] = [Double(p.location.x), 1 - Double(p.location.y), Double(p.confidence)]
                 }
             }
         }
-        // Zone du joueur pour l'image suivante (repère Vision : origine en bas à gauche), des épaules jusqu'au sol
-        if let obs = pose.results?.first, let pts = try? obs.recognizedPoints(.all) {
+        if poseNow { lastJoints = joints }
+        // Zone du joueur pour les images suivantes (repère Vision : origine en bas à gauche), des épaules jusqu'au sol
+        if !poseNow {
+            // corps pas analysé sur cette image : la zone précédente reste valable
+        } else if let obs = pose.results?.first, let pts = try? obs.recognizedPoints(.all) {
             let ok = pts.values.filter { $0.confidence > 0.2 }
             if ok.count >= 4 {
                 let xs = ok.map { $0.location.x }, ys = ok.map { $0.location.y }

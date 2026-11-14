@@ -60,6 +60,8 @@ export default function DribbleGame() {
   const stopLoop = useRef<() => void>(() => undefined);
   // toucher le ballon à l'écran pendant le calibrage : apprend sa couleur quand le modèle ne le trouve pas
   const teachRef = useRef<((sx: number, sy: number) => TeachResult) | null>(null);
+  // diagnostic de fin de partie (suivi natif) : images analysées, ballon vu ou suivi, objets reconnus
+  const statsRef = useRef<(() => Record<string, unknown>) | null>(null);
   const [taught, setTaught] = useState<TeachResult | null>(null);
   // App iPhone : suivi natif (caméra avant derrière la page, ballon YOLOv3 et corps par Apple)
   const [native, setNative] = useState(false);
@@ -155,6 +157,7 @@ export default function DribbleGame() {
           stepRef.current(st, ctx, m, ball ? { x: m.x(ball.x), y: m.y(ball.y), r: m.len(ball.r), predicted: ball.predicted } : null, lms, W, H, ts);
         }
       });
+      statsRef.current = live ? (vision.stats as () => Record<string, unknown>) : null;
       stopLoop.current = () => { stopFrames(); vision.close(); teachRef.current = null; };
       teachRef.current = live ? null : (sx, sy) => {
         const v = videoRef.current, c = canvasRef.current;
@@ -288,6 +291,9 @@ export default function DribbleGame() {
       ...(score && !ambi ? [{ key: `dribble:${def.id}`, value: score, better: lower ? ("lower" as const) : ("higher" as const), label: `${def.name}`, unit: lower ? "s" : def.id === "sequence" ? "cibles" : "pts" }] : []),
       { key: "dribble_rate", value: Math.round(rate * 10) / 10, better: "higher", label: "Dribbles par seconde", unit: "dr/s" },
     ]).catch(() => []);
+    if (statsRef.current) {
+      supabase.from("debug_traces").insert({ kind: "dribble_native", data: { game: def.id, elapsed: Math.round(elapsed), dribbles: st.dribbles, hits: st.hits, targets: st.targets, ...statsRef.current() } }).then(() => undefined, () => undefined);
+    }
     const id = crypto.randomUUID();
     const event = eventId ? events.find((e) => e.id === eventId) : null;
     const lastGame = event ? (event.payload.games ?? []).at(-1) === def.id : false;
