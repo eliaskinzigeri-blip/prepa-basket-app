@@ -30,6 +30,7 @@ export function visionCaps(): Promise<Caps> {
 
 interface LiveFrame {
   t: number; w: number; h: number; light: number;
+  objs?: { l: string; c: number }[];
   ball: { x: number; y: number; r: number; score: number; predicted: boolean } | null;
   pose: Record<string, [number, number, number]> | null;
 }
@@ -39,8 +40,14 @@ const KNEES: Record<string, number> = { lKnee: 25, rKnee: 26 };
 /** Caméra avant native derrière la page, ballon (YOLOv3) et corps (Vision) à chaque image, au format de la vision web. */
 export async function startNativeLive() {
   let last: LiveFrame | null = null;
-  let frames = 0, balls = 0;
-  const handle = await PrepaVision.addListener("liveFrame", (f) => { last = f; frames++; if (f.ball) balls++; });
+  let frames = 0, balls = 0, tracked = 0;
+  // diagnostic : ce que le modèle reconnaît (étiquette → nombre et meilleure confiance)
+  const labels: Record<string, { n: number; max: number }> = {};
+  const handle = await PrepaVision.addListener("liveFrame", (f) => {
+    last = f; frames++;
+    if (f.ball) { if (f.ball.predicted) tracked++; else balls++; }
+    for (const o of f.objs ?? []) { const e = (labels[o.l] ??= { n: 0, max: 0 }); e.n++; e.max = Math.max(e.max, Math.round(o.c * 100) / 100); }
+  });
   document.documentElement.classList.add("native-cam");
   try { await PrepaVision.startLive(); } catch (e) { handle.remove(); document.documentElement.classList.remove("native-cam"); throw e; }
   // « vidéo » vue par le reste du jeu : seulement ses dimensions (pour placer les points à l'écran)
@@ -63,7 +70,7 @@ export async function startNativeLive() {
       (video as unknown as { videoWidth: number; videoHeight: number }).videoHeight = f.h;
       return { ball: f.ball, pose: pose(f.pose), light: f.light };
     },
-    stats: () => ({ native: true, frames, balls }),
+    stats: () => ({ native: true, v: 2, frames, balls, tracked, labels }),
     close() {
       handle.remove();
       PrepaVision.stopLive().catch(() => undefined);

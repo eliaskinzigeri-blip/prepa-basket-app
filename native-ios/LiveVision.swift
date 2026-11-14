@@ -26,6 +26,8 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var trackRequest: VNTrackObjectRequest?
     private var lastBall: CGRect?
     private var frameIndex = 0
+    private var roi: CGRect?
+    private var lostFrames = 0
     private var orientationObserver: NSObjectProtocol?
     private(set) var running = false
 
@@ -151,10 +153,14 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixels, orientation: .up)
         let pose = VNDetectHumanBodyPoseRequest()
         var requests: [VNRequest] = [pose]
-        // YOLO une image sur deux : le suivi Vision fait le lien entre deux détections
+        // YOLO à chaque image tant que le ballon n'est pas suivi, une image sur deux ensuite (le suivi Vision fait le lien).
+        // Deux images sur trois, il n'analyse que la zone du joueur (des épaules au sol) : le ballon y paraît bien plus
+        // grand pour le modèle (416 × 416 pixels), qui le rate sinon quand il est petit et flou.
+        let useRoi = roi != nil && frameIndex % 3 != 0
         let yoloRequest: VNCoreMLRequest? = (frameIndex % 2 == 0 || lastBall == nil) ? yolo.map { m in
             let r = VNCoreMLRequest(model: m)
             r.imageCropAndScaleOption = .scaleFill
+            if useRoi, let z = roi { r.regionOfInterest = z }
             return r
         } : nil
         if let y = yoloRequest { requests.append(y) }
@@ -162,32 +168,49 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
         var ball: [String: Any]? = nil
         var detected = false
+        var objs: [[String: Any]] = []
         if let y = yoloRequest {
-            let balls = (y.results as? [VNRecognizedObjectObservation] ?? [])
-                .filter { $0.labels.first?.identifier == "sports ball" && $0.labels.first!.confidence > 0.25 }
+            let zone = useRoi ? (roi ?? CGRect(x: 0, y: 0, width: 1, height: 1)) : CGRect(x: 0, y: 0, width: 1, height: 1)
+            // boîtes rendues dans le repère de la zone analysée → repère de l'image entière
+            let full = { (b: CGRect) -> CGRect in
+                CGRect(x: zone.minX + b.minX * zone.width, y: zone.minY + b.minY * zone.height, width: b.width * zone.width, height: b.height * zone.height)
+            }
+            let all = (y.results as? [VNRecognizedObjectObservation] ?? [])
+            objs = all.prefix(4).map { ["l": $0.labels.first?.identifier ?? "?", "c": Double($0.labels.first?.confidence ?? 0)] }
+            // Un ballon de basket est souvent reconnu comme « orange » par ce type de modèle
+            let balls = all.filter { o in
+                guard let l = o.labels.first else { return false }
+                return (l.identifier == "sports ball" && l.confidence > 0.12) || (l.identifier == "orange" && l.confidence > 0.2)
+            }
             // le plus proche de la position précédente, sinon le plus sûr
             let best = balls.min { a, b in
                 guard let p = lastBall else { return a.confidence > b.confidence }
-                return hypot(a.boundingBox.midX - p.midX, a.boundingBox.midY - p.midY) < hypot(b.boundingBox.midX - p.midX, b.boundingBox.midY - p.midY)
+                let ra = full(a.boundingBox), rb = full(b.boundingBox)
+                return hypot(ra.midX - p.midX, ra.midY - p.midY) < hypot(rb.midX - p.midX, rb.midY - p.midY)
             }
             if let b = best {
+                let r = full(b.boundingBox)
                 detected = true
-                lastBall = b.boundingBox
-                let t = VNTrackObjectRequest(detectedObjectObservation: VNDetectedObjectObservation(boundingBox: b.boundingBox))
-                t.trackingLevel = .fast
+                lastBall = r
+                let t = VNTrackObjectRequest(detectedObjectObservation: VNDetectedObjectObservation(boundingBox: r))
+                t.trackingLevel = .accurate
                 trackRequest = t
-                ball = box(b.boundingBox, w: w, h: h, conf: b.confidence, predicted: false)
+                lostFrames = 0
+                ball = box(r, w: w, h: h, conf: b.confidence, predicted: false)
             }
         }
         if !detected, let t = trackRequest {
             try? sequence.perform([t], on: pixels, orientation: .up)
-            if let o = t.results?.first as? VNDetectedObjectObservation, o.confidence > 0.3 {
+            if let o = t.results?.first as? VNDetectedObjectObservation, o.confidence > 0.15 {
                 t.inputObservation = o
                 lastBall = o.boundingBox
+                lostFrames = 0
                 ball = box(o.boundingBox, w: w, h: h, conf: o.confidence, predicted: false)
             } else {
-                trackRequest = nil
-                lastBall = nil
+                lostFrames += 1
+                // quelques images ratées (flou) : on garde la dernière position, annoncée comme prédite
+                if lostFrames <= 4, let p = lastBall { ball = box(p, w: w, h: h, conf: 0.1, predicted: true) }
+                else { trackRequest = nil; lastBall = nil }
             }
         }
 
@@ -199,7 +222,22 @@ final class LiveVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 }
             }
         }
+        // Zone du joueur pour l'image suivante (repère Vision : origine en bas à gauche), des épaules jusqu'au sol
+        if let obs = pose.results?.first, let pts = try? obs.recognizedPoints(.all) {
+            let ok = pts.values.filter { $0.confidence > 0.2 }
+            if ok.count >= 4 {
+                let xs = ok.map { $0.location.x }, ys = ok.map { $0.location.y }
+                let minX = xs.min()!, maxX = xs.max()!, topY = ys.max()!
+                let wide = max(0.35, (maxX - minX) * 2.2)
+                let cx = (minX + maxX) / 2
+                let x0 = max(0, cx - wide / 2), x1 = min(1, cx + wide / 2)
+                let y1 = min(1, topY + 0.05)
+                roi = CGRect(x: x0, y: 0, width: x1 - x0, height: y1)
+            }
+        } else { roi = nil }
+
         emit([
+            "objs": objs,
             "t": CACurrentMediaTime() * 1000,
             "w": w, "h": h,
             "ball": ball ?? NSNull(),
