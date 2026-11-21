@@ -59,6 +59,24 @@ export async function initNative() {
     if (!isActive) leftAt = Date.now();
     else if (faceIdEnabled() && leftAt && Date.now() - leftAt > 5 * 60_000) lock();
   });
+  // Liens prepabasket://<page> (raccourci Jarvis, autres apps) : ouvre directement la page demandée,
+  // par exemple prepabasket://rameur/apercu/warmup ou prepabasket://evenement/<id>.
+  App.addListener("appUrlOpen", ({ url }) => openLink(url));
+  openLink((await App.getLaunchUrl())?.url);
+}
+
+/** Page interne d'un lien prepabasket://… ; navigation par l'historique, que le routeur suit (popstate). */
+function openLink(raw?: string) {
+  if (!raw) return;
+  let target: string;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "prepabasket:") return;
+    target = `${`/${u.host}${u.pathname}`.replace(/\/{2,}/g, "/").replace(/(.)\/$/, "$1")}${u.search}`;
+  } catch { return; }
+  if (`${location.pathname}${location.search}` === target) return;
+  history.pushState({}, "", target);
+  dispatchEvent(new PopStateEvent("popstate"));
 }
 
 // ---------- rappels locaux ----------

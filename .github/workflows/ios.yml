@@ -60,6 +60,9 @@ jobs:
           set_key NSFaceIDUsageDescription "Face ID verrouille Prépa Basket pour que toi seul y accèdes."
           set_key NSPhotoLibraryUsageDescription "Pour importer la photo d'un repas depuis ta galerie."
           set_key NSPhotoLibraryAddUsageDescription "Pour enregistrer les replays de tes tirs."
+          # Lien prepabasket://<page> : le raccourci Jarvis (et les autres apps) ouvre directement une page
+          plutil -remove CFBundleURLTypes "$PLIST" 2>/dev/null || true
+          plutil -insert CFBundleURLTypes -json '[{"CFBundleURLName":"fr.prepabasket.app","CFBundleURLSchemes":["prepabasket"]}]' "$PLIST"
           # Numéro de version 1.0.N : chaque compilation apparaît comme une mise à jour dans SideStore
           plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$PLIST"
           plutil -replace CFBundleVersion -string "$APP_BUILD" "$PLIST"
